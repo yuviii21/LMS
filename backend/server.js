@@ -16,6 +16,43 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'Backend is running' });
 });
 
+// Initialize database endpoint (for Vercel setup)
+app.get('/api/init-db', async (req, res) => {
+    try {
+        const { pool } = require('./db');
+        const client = await pool.connect();
+        
+        await client.query('BEGIN');
+        await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
+        
+        const createUsersTableText = `
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                name VARCHAR(255) NOT NULL,
+                email VARCHAR(255) UNIQUE NOT NULL,
+                password VARCHAR(255) NOT NULL,
+                bio TEXT DEFAULT 'Passionate learner',
+                avatar VARCHAR(255) DEFAULT '👨‍💻',
+                enrolled_courses JSONB DEFAULT '[]'::jsonb,
+                progress JSONB DEFAULT '{}'::jsonb,
+                join_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        `;
+        
+        await client.query(createUsersTableText);
+        await client.query('COMMIT');
+        client.release();
+        
+        res.json({ status: 'Database initialized successfully!' });
+    } catch (error) {
+        console.error('Init Error:', error);
+        res.status(500).json({ 
+            error: error.message,
+            hint: 'Check DATABASE_URL in Vercel environment variables'
+        });
+    }
+});
+
 // Routes
 const { router: authRouter } = require('./routes/auth');
 app.use('/api/auth', authRouter);
