@@ -63,8 +63,11 @@ router.post('/register', async (req, res) => {
 
         res.status(201).json({ token, user: userData });
     } catch (error) {
-        console.error('Registration Error:', error);
-        res.status(500).json({ error: 'Internal Server Error during registration' });
+        console.error('Registration Error:', error.message);
+        res.status(500).json({ 
+            error: 'Internal Server Error during registration',
+            message: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
@@ -112,8 +115,11 @@ router.post('/login', async (req, res) => {
 
         res.json({ token, user: userData });
     } catch (error) {
-        console.error('Login Error:', error);
-        res.status(500).json({ error: 'Internal Server Error during login' });
+        console.error('Login Error:', error.message);
+        res.status(500).json({ 
+            error: 'Internal Server Error during login',
+            message: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
@@ -140,8 +146,11 @@ router.get('/me', authenticateToken, async (req, res) => {
 
         res.json({ user: userData });
     } catch (error) {
-        console.error('Me Error:', error);
-        res.status(500).json({ error: 'Internal Server Error during user fetch' });
+        console.error('Me Error:', error.message);
+        res.status(500).json({ 
+            error: 'Internal Server Error during user fetch',
+            message: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 });
 
