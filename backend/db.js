@@ -7,11 +7,26 @@ if (!databaseUrl) {
     console.error('DATABASE_URL is not set. Add it to Vercel Environment Variables.');
 }
 
+function buildPoolConfig(url) {
+    const parsedUrl = new URL(url);
+
+    // Prevent connection-string SSL params from overriding the ssl object below.
+    parsedUrl.searchParams.delete('sslmode');
+    parsedUrl.searchParams.delete('sslcert');
+    parsedUrl.searchParams.delete('sslkey');
+    parsedUrl.searchParams.delete('sslrootcert');
+
+    return {
+        connectionString: parsedUrl.toString(),
+        ssl: {
+            rejectUnauthorized: false
+        },
+        keepAlive: true
+    };
+}
+
 const pool = databaseUrl
-    ? new Pool({
-        connectionString: databaseUrl,
-        ssl: { rejectUnauthorized: false }
-    })
+    ? new Pool(buildPoolConfig(databaseUrl))
     : null;
 
 if (pool) {
