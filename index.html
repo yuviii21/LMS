@@ -76,6 +76,21 @@
         const API_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? 'http://localhost:5000/api' : '/api';
 
         // API Helper Functions
+        const handleResponse = async (response) => {
+            try {
+                const data = await response.json();
+                if (!response.ok) {
+                    return { error: data.error || data.message || `Server Error: ${response.status}` };
+                }
+                return data;
+            } catch (err) {
+                // If the response is not valid JSON (e.g. Vercel 500 HTML error page)
+                const text = await response.text();
+                console.error("Non-JSON API Response:", text);
+                return { error: `Server failed to return JSON. Status: ${response.status}. Please check Vercel deployment logs.` };
+            }
+        };
+
         const authAPI = {
             register: async (name, email, password, confirmPassword) => {
                 const response = await fetch(`${API_URL}/auth/register`, {
@@ -83,7 +98,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ name, email, password, confirmPassword })
                 });
-                return response.json();
+                return handleResponse(response);
             },
             login: async (email, password) => {
                 const response = await fetch(`${API_URL}/auth/login`, {
@@ -91,7 +106,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
-                return response.json();
+                return handleResponse(response);
             },
             verifyToken: async (token) => {
                 const response = await fetch(`${API_URL}/auth/me`, {
@@ -101,7 +116,7 @@
                         'Content-Type': 'application/json'
                     }
                 });
-                return response.json();
+                return handleResponse(response);
             }
         };
 
@@ -1451,7 +1466,8 @@
                         }
                     }
                 } catch (err) {
-                    setError('Network error. Make sure backend server is running on http://localhost:5000');
+                    console.error("Login/Register Error:", err);
+                    setError(err.message || 'An unexpected network error occurred. Please try again.');
                     setLoading(false);
                 }
             };
