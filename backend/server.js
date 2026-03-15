@@ -13,38 +13,55 @@ app.use(cors({
 app.use(express.json());
 
 // Connect to MongoDB
-let isConnected;
+let cached = global.mongoose;
+
+if (!cached) {
+    cached = global.mongoose = { conn: null, promise: null };
+}
 
 const connectDB = async () => {
-    if (isConnected) {
-        console.log('Using existing database connection');
-        return;
-    }
-    
-    // If on Vercel and MONGODB_URI is missing, throw an error immediately instead of hanging on localhost
+    // If on Vercel and MONGODB_URI is missing, throw an error immediately
     if (!process.env.MONGODB_URI) {
         console.error('CRITICAL ERROR: MONGODB_URI environment variable is not defined!');
         throw new Error('MONGODB_URI is not defined. Please add it to your Vercel Environment Variables.');
     }
 
-    try {
-        const db = await mongoose.connect(process.env.MONGODB_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-            bufferCommands: false, // Disable mongoose buffering to fail fast instead of timing out at 10000ms
-        });
-        isConnected = db.connections[0].readyState;
-        console.log('Connected to MongoDB successfully');
-    } catch (error) {
-        console.log('MongoDB connection error:', error);
-        throw error;
+    if (cached.conn) {
+        console.log('Using existing database connection');
+        return cached.conn;
     }
+
+    if (!cached.promise) {
+        console.log('Creating new database connection');
+        const opts = {
+            bufferCommands: false,
+        };
+
+        cached.promise = mongoose.connect(process.env.MONGODB_URI, opts).then((mongoose) => {
+            console.log('Connected to MongoDB successfully');
+            return mongoose;
+        });
+    }
+
+    try {
+        cached.conn = await cached.promise;
+    } catch (e) {
+        cached.promise = null;
+        console.log('MongoDB connection error:', e);
+        throw e;
+    }
+
+    return cached.conn;
 };
 
 // Apply connectDB middleware to all routes
 app.use(async (req, res, next) => {
-    await connectDB();
-    next();
+    try {
+        await connectDB();
+        next();
+    } catch (error) {
+        res.status(500).json({ error: error.message || 'Database connection failed' });
+    }
 });
 
 // Routes
