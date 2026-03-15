@@ -13,9 +13,31 @@ app.use(cors({
 app.use(express.json());
 
 // Connect to MongoDB
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/oneeight-lms')
-    .then(() => console.log('Connected to MongoDB'))
-    .catch(err => console.log('MongoDB connection error:', err));
+let isConnected;
+
+const connectDB = async () => {
+    if (isConnected) {
+        console.log('Using existing database connection');
+        return;
+    }
+    
+    try {
+        const db = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/oneeight-lms', {
+            useNewUrlParser: true,
+            useUnifiedTopology: true,
+        });
+        isConnected = db.connections[0].readyState;
+        console.log('Connected to MongoDB');
+    } catch (error) {
+        console.log('MongoDB connection error:', error);
+    }
+};
+
+// Apply connectDB middleware to all routes
+app.use(async (req, res, next) => {
+    await connectDB();
+    next();
+});
 
 // Routes
 const { router: authRouter } = require('./routes/auth');
