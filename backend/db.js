@@ -1,32 +1,33 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// Check for required environment variable
-if (!process.env.DATABASE_URL) {
-    console.error('❌ CRITICAL ERROR: DATABASE_URL environment variable is not defined!');
-    console.error('Please add DATABASE_URL to your Vercel Environment Variables.');
-    process.exit(1);
+const databaseUrl = process.env.DATABASE_URL;
+
+if (!databaseUrl) {
+    console.error('DATABASE_URL is not set. Add it to Vercel Environment Variables.');
 }
 
-console.log('✅ DATABASE_URL found, connecting to PostgreSQL...');
+const pool = databaseUrl
+    ? new Pool({
+        connectionString: databaseUrl,
+        ssl: { rejectUnauthorized: false }
+    })
+    : null;
 
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
+if (pool) {
+    pool.on('error', (err) => {
+        console.error('PostgreSQL idle client error:', err.message);
+    });
+}
+
+async function query(text, params) {
+    if (!pool) {
+        throw new Error('DATABASE_URL is not configured');
     }
-});
-
-pool.on('error', (err, client) => {
-    console.error('❌ Unexpected error on idle client:', err);
-    process.exit(-1);
-});
-
-pool.on('connect', () => {
-    console.log('✅ Successfully connected to PostgreSQL');
-});
+    return pool.query(text, params);
+}
 
 module.exports = {
-    query: (text, params) => pool.query(text, params),
+    query,
     pool
 };
