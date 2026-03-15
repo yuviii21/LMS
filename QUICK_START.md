@@ -1,10 +1,10 @@
-# Quick Start - MongoDB Backend
+# Quick Start - PostgreSQL Backend (Aiven)
 
 ## 3 Steps to Get Running
 
-### 1️⃣ Get MongoDB URL
-- **Free Option:** MongoDB Atlas (cloud) - [atlas.mongodb.com](https://www.mongodb.com/cloud/atlas)
-- **Copy your connection string:** `mongodb+srv://username:password@cluster.mongodb.net/oneeight-lms`
+### 1️⃣ Get PostgreSQL URL
+- **Using Aiven:** PostgreSQL service on Aiven Cloud - [aiven.io](https://aiven.io)
+- **Connection string format:** `postgres://avnadmin:YOUR_PASSWORD@your-host.aivencloud.com:port/defaultdb?sslmode=require`
 
 ### 2️⃣ Setup Backend
 ```bash
@@ -14,21 +14,25 @@ npm install
 
 Create `.env` file in `/backend` folder:
 ```env
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/oneeight-lms
+DATABASE_URL=postgres://avnadmin:YOUR_PASSWORD@your-host.aivencloud.com:18023/defaultdb?sslmode=require
 JWT_SECRET=mysupersecretkey123
 PORT=5000
 ```
 
-Replace with your MongoDB URI!
+Replace `YOUR_PASSWORD` and `your-host` with your actual Aiven PostgreSQL credentials!
 
-### 3️⃣ Start Backend
+### 3️⃣ Initialize Database & Start Backend
 ```bash
+# First time: Initialize database tables
+node init-db.js
+
+# Start backend
 npm start
 ```
 
 Expected output:
 ```
-Connected to MongoDB
+Tables created successfully!
 Server running on http://localhost:5000
 ```
 
@@ -48,9 +52,9 @@ Server running on http://localhost:5000
 | Problem | Solution |
 |---------|----------|
 | `Cannot find module 'express'` | Run `npm install` from `/backend` folder |
-| `MONGODB_URI not defined` | Check `.env` file with MongoDB connection string |
+| `DATABASE_URL not defined` | Check `.env` file with PostgreSQL connection string |
 | `Connection refused` | Backend not running - Run `npm start` |
-| `MongoNetworkError` | Wrong MongoDB URI or server is down |
+| `SSL/TLS error` | Ensure `?sslmode=require` is in your DATABASE_URL |
 
 ---
 
@@ -58,15 +62,13 @@ Server running on http://localhost:5000
 ```
 LMS/
 ├── index.html (Frontend - React SPA)
-├── MONGODB_SETUP.md (Detailed setup guide)
 ├── QUICK_START.md (This file)
 └── backend/
     ├── server.js
+    ├── db.js
+    ├── init-db.js
     ├── package.json
     ├── .env (Create this - not in repo)
-    ├── .env.example
-    ├── models/
-    │   └── User.js
     └── routes/
         └── auth.js
 ```
@@ -79,8 +81,8 @@ LMS/
 Frontend (index.html)
     ↓ (API Calls)
 Express Backend (localhost:5000)
-    ↓ (Mongoose)
-MongoDB Database
+    ↓ (pg driver)
+PostgreSQL Database (Aiven)
 ```
 
 ---

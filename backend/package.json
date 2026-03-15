@@ -1,7 +1,7 @@
 {
   "name": "oneeight-lms-backend",
   "version": "1.0.0",
-  "description": "OneEight LMS Backend with MongoDB",
+  "description": "OneEight LMS Backend with PostgreSQL",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

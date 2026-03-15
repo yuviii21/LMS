@@ -1,6 +1,7 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const bcrypt = require('bcryptjs');
+const db = require('../db');
 const router = express.Router();
 
 // Register
@@ -22,42 +23,48 @@ router.post('/register', async (req, res) => {
         }
 
         // Check if user exists
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
+        const userExists = await db.query('SELECT id FROM users WHERE email = $1', [email.toLowerCase()]);
+        if (userExists.rows.length > 0) {
             return res.status(400).json({ error: 'Email already registered' });
         }
 
-        // Create user
-        const user = new User({
-            name,
-            email,
-            password,
-            avatar: ['👨‍💻', '👩‍💻', '🧑‍💻'][Math.floor(Math.random() * 3)]
-        });
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+        
+        // Random avatar
+        const avatar = ['👨‍💻', '👩‍💻', '🧑‍💻'][Math.floor(Math.random() * 3)];
 
-        await user.save();
+        // Create user
+        const result = await db.query(
+            'INSERT INTO users (name, email, password, avatar) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, email.toLowerCase(), hashedPassword, avatar]
+        );
+        
+        const user = result.rows[0];
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: user._id, email: user.email },
+            { userId: user.id, email: user.email },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
 
         // Return user data (without password)
         const userData = {
-            id: user._id,
+            id: user.id,
             name: user.name,
             email: user.email,
             bio: user.bio,
             avatar: user.avatar,
-            enrolledCourses: user.enrolledCourses,
-            joinDate: user.joinDate
+            enrolledCourses: user.enrolled_courses,
+            joinDate: user.join_date
         };
 
         res.status(201).json({ token, user: userData });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Registration Error:', error);
+        res.status(500).json({ error: 'Internal Server Error during registration' });
     }
 });
 
@@ -71,63 +78,70 @@ router.post('/login', async (req, res) => {
             return res.status(400).json({ error: 'Please fill in all fields' });
         }
 
-        // Find user and include password field
-        const user = await User.findOne({ email }).select('+password');
-        if (!user) {
+        // Find user
+        const result = await db.query('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]);
+        if (result.rows.length === 0) {
             return res.status(401).json({ error: 'No account found with this email' });
         }
 
+        const user = result.rows[0];
+
         // Compare password
-        const isMatch = await user.comparePassword(password);
+        const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             return res.status(401).json({ error: 'Invalid password' });
         }
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: user._id, email: user.email },
+            { userId: user.id, email: user.email },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
 
         // Return user data (without password)
         const userData = {
-            id: user._id,
+            id: user.id,
             name: user.name,
             email: user.email,
             bio: user.bio,
             avatar: user.avatar,
-            enrolledCourses: user.enrolledCourses,
-            joinDate: user.joinDate
+            enrolledCourses: user.enrolled_courses,
+            joinDate: user.join_date
         };
 
         res.json({ token, user: userData });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Login Error:', error);
+        res.status(500).json({ error: 'Internal Server Error during login' });
     }
 });
 
 // Verify token and get user
 router.get('/me', authenticateToken, async (req, res) => {
     try {
-        const user = await User.findById(req.userId);
-        if (!user) {
+        const result = await db.query('SELECT * FROM users WHERE id = $1', [req.userId]);
+        
+        if (result.rows.length === 0) {
             return res.status(404).json({ error: 'User not found' });
         }
 
+        const user = result.rows[0];
+
         const userData = {
-            id: user._id,
+            id: user.id,
             name: user.name,
             email: user.email,
             bio: user.bio,
             avatar: user.avatar,
-            enrolledCourses: user.enrolledCourses,
-            joinDate: user.joinDate
+            enrolledCourses: user.enrolled_courses,
+            joinDate: user.join_date
         };
 
         res.json({ user: userData });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        console.error('Me Error:', error);
+        res.status(500).json({ error: 'Internal Server Error during user fetch' });
     }
 });
 
@@ -140,11 +154,11 @@ function authenticateToken(req, res, next) {
         return res.status(401).json({ error: 'No token provided' });
     }
 
-    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+    jwt.verify(token, process.env.JWT_SECRET, (err, decodedUser) => {
         if (err) {
             return res.status(403).json({ error: 'Invalid token' });
         }
-        req.userId = user.userId;
+        req.userId = decodedUser.userId;
         next();
     });
 }

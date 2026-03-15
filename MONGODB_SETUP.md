@@ -1,30 +1,29 @@
-# OneEight LMS - MongoDB Backend Setup Guide
+# OneEight LMS - PostgreSQL Backend Setup Guide (Aiven)
 
 ## Overview
-The backend uses **Express.js** with **MongoDB** for user authentication and data persistence. JWT tokens are used for session management.
+The backend uses **Express.js** with **PostgreSQL** (hosted on Aiven) for user authentication and data persistence. JWT tokens are used for session management.
 
 ---
 
 ## Prerequisites
 
 1. **Node.js** (v14 or higher) - Download from [nodejs.org](https://nodejs.org)
-2. **MongoDB** - Choose one:
-   - **MongoDB Atlas** (Cloud) - Recommended for Vercel deployment
-   - **MongoDB Local** - For local development
+2. **PostgreSQL** - Using Aiven Cloud Database - [aiven.io](https://aiven.io)
 
 ---
 
-## Step 1: Install MongoDB
+## Step 1: Setup PostgreSQL Database (Aiven)
 
-### Option A: MongoDB Atlas (Cloud) - Recommended
-1. Go to [MongoDB Atlas](https://www.mongodb.com/cloud/atlas)
-2. Create a free account
-3. Create a new cluster
-4. Get your connection string: `mongodb+srv://username:password@cluster.mongodb.net/oneeight-lms`
-
-### Option B: MongoDB Local
-1. Download and install from [mongodb.com](https://www.mongodb.com/try/download/community)
-2. Use connection string: `mongodb://localhost:27017/oneeight-lms`
+### Using Aiven PostgreSQL
+1. Go to [Aiven Console](https://aiven.io)
+2. Create a free account or sign in
+3. Create a new PostgreSQL service
+4. Get your connection credentials from the Aiven console:
+   - **Host:** Your Aiven PostgreSQL host
+   - **Port:** Usually 18023
+   - **Database:** defaultdb
+   - **User:** avnadmin
+   - **Password:** Your Aiven password
 
 ---
 
@@ -42,14 +41,28 @@ npm install
 
 ### 3. Create `.env` file
 ```env
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/oneeight-lms
+DATABASE_URL=postgres://avnadmin:YOUR_PASSWORD@your-host.aivencloud.com:18023/defaultdb?sslmode=require
 JWT_SECRET=your_super_secret_jwt_key_change_this_in_production_12345678
 PORT=5000
+NODE_ENV=development
 ```
 
-**Important:** Replace `MONGODB_URI` with your actual MongoDB connection string
+**Important:** 
+- Replace `YOUR_PASSWORD` and `your-host` with your actual Aiven PostgreSQL credentials from the Aiven console
+- Ensure the connection string includes `?sslmode=require`
 
-### 4. Start the backend server
+### 4. Initialize the database tables
+```bash
+node init-db.js
+```
+
+Expected output:
+```
+Starting database initialization...
+Tables created successfully!
+```
+
+### 5. Start the backend server
 ```bash
 npm start
 ```
@@ -71,7 +84,7 @@ The frontend is already configured to use `http://localhost:5000/api`. No change
 
 ## Step 4: Run the Application
 
-1. **Keep backend running** (from Step 2.4)
+1. **Keep backend running** (from Step 2.5)
 2. **Open the frontend:**
    - Drag `index.html` to your browser, OR
    - Use Live Server extension in VS Code
@@ -113,23 +126,21 @@ Authorization: Bearer <token>
 
 ---
 
-## MongoDB Schema
+## PostgreSQL Schema
 
-### Users Collection
-```javascript
-{
-  _id: ObjectId,
-  name: String,
-  email: String (unique),
-  password: String (hashed with bcrypt),
-  bio: String,
-  avatar: String,
-  enrolledCourses: [String],
-  progress: Map,
-  joinDate: Date,
-  createdAt: Date,
-  updatedAt: Date
-}
+### Users Table
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name VARCHAR(255) NOT NULL,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password VARCHAR(255) NOT NULL,
+  bio TEXT DEFAULT 'Passionate learner',
+  avatar VARCHAR(255) DEFAULT '👨‍💻',
+  enrolled_courses JSONB DEFAULT '[]'::jsonb,
+  progress JSONB DEFAULT '{}'::jsonb,
+  join_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
 ---
@@ -141,18 +152,22 @@ Authorization: Bearer <token>
 npm install
 ```
 
-### Error: `MONGODB_URI not defined`
-- Check `.env` file exists with correct MongoDB URI
+### Error: `DATABASE_URL not defined`
+- Check `.env` file exists with correct PostgreSQL URI
 - Restart server after creating `.env`
+- Ensure `?sslmode=require` is in your DATABASE_URL
+
+### Error: `SSL/TLS error`
+- Add `?sslmode=require` to your DATABASE_URL
+- Make sure you're using the correct Aiven host and port
 
 ### Error: `connect ECONNREFUSED 127.0.0.1:5000`
 - Backend server not running
 - Run: `npm start` from `/backend` directory
 
-### Error: `MongoNetworkError`
-- MongoDB connection string is incorrect
-- Check MONGODB_URI in `.env`
-- MongoDB server might be down
+### Error: `Tables already exist`
+- This is normal - the init-db.js uses `CREATE TABLE IF NOT EXISTS`
+- You only need to run it once
 
 ---
 
@@ -163,9 +178,11 @@ npm install
 1. Push code to GitHub
 2. Connect repository to hosting platform
 3. Set environment variables:
-   - `MONGODB_URI`
+   - `DATABASE_URL` (Your Aiven PostgreSQL URI)
    - `JWT_SECRET`
-4. Deploy
+   - `NODE_ENV=production`
+4. Run `node init-db.js` after first deployment to initialize tables
+5. Deploy
 
 ### Update Frontend API URL
 If backend is deployed, update `API_URL` in `index.html`:
@@ -181,20 +198,24 @@ const API_URL = 'https://your-backend-domain.com/api';
 ✅ JWT-based authentication  
 ✅ Cross-device login support  
 ✅ Secure session management  
-✅ MongoDB persistence  
+✅ PostgreSQL persistence (Aiven Cloud)  
+✅ SSL/TLS encrypted connections  
 ✅ Error handling  
 ✅ CORS enabled  
+✅ UUID primary keys  
+✅ JSONB for flexible data storage  
 
 ---
 
 ## Next Steps
 
-1. Create MongoDB Atlas account (or install local MongoDB)
+1. Create Aiven PostgreSQL account
 2. Run `npm install` in backend folder
-3. Create `.env` with your MongoDB URI
-4. Start backend: `npm start`
-5. Test with frontend at `http://localhost:5000/api/health`
-6. Register and login through the app!
+3. Create `.env` with your Aiven PostgreSQL connection string
+4. Run `node init-db.js` to initialize database tables
+5. Start backend: `npm start`
+6. Test with backend health: `/api/health`
+7. Register and login through the app!
 
 ---
 
