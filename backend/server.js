@@ -21,15 +21,23 @@ const connectDB = async () => {
         return;
     }
     
+    // If on Vercel and MONGODB_URI is missing, throw an error immediately instead of hanging on localhost
+    if (!process.env.MONGODB_URI) {
+        console.error('CRITICAL ERROR: MONGODB_URI environment variable is not defined!');
+        throw new Error('MONGODB_URI is not defined. Please add it to your Vercel Environment Variables.');
+    }
+
     try {
-        const db = await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/oneeight-lms', {
+        const db = await mongoose.connect(process.env.MONGODB_URI, {
             useNewUrlParser: true,
             useUnifiedTopology: true,
+            bufferCommands: false, // Disable mongoose buffering to fail fast instead of timing out at 10000ms
         });
         isConnected = db.connections[0].readyState;
-        console.log('Connected to MongoDB');
+        console.log('Connected to MongoDB successfully');
     } catch (error) {
         console.log('MongoDB connection error:', error);
+        throw error;
     }
 };
 
