@@ -4,9 +4,87 @@ const bcrypt = require('bcryptjs');
 const db = require('../db');
 const router = express.Router();
 
+function getApiErrorDetails(error, fallbackMessage) {
+    if (!error) {
+        return { status: 500, payload: { error: fallbackMessage } };
+    }
+
+    if (error.message === 'DATABASE_URL is not configured') {
+        return {
+            status: 500,
+            payload: {
+                error: 'DATABASE_URL is not configured on server',
+                hint: 'Add DATABASE_URL in Vercel Environment Variables'
+            }
+        };
+    }
+
+    if (error.code === '42P01') {
+        return {
+            status: 500,
+            payload: {
+                error: 'Database table is missing',
+                hint: 'Open /api/init-db once to create required tables'
+            }
+        };
+    }
+
+    if (error.code === '23505') {
+        return {
+            status: 400,
+            payload: { error: 'Email already registered' }
+        };
+    }
+
+    if (error.code === '28P01' || error.code === '28000') {
+        return {
+            status: 500,
+            payload: {
+                error: 'Database authentication failed',
+                hint: 'Check DATABASE_URL username/password in Vercel'
+            }
+        };
+    }
+
+    if (error.code === '3D000') {
+        return {
+            status: 500,
+            payload: {
+                error: 'Database does not exist',
+                hint: 'Check DATABASE_URL database name'
+            }
+        };
+    }
+
+    if (String(error.message || '').includes('secretOrPrivateKey')) {
+        return {
+            status: 500,
+            payload: {
+                error: 'JWT_SECRET is not configured on server',
+                hint: 'Add JWT_SECRET in Vercel Environment Variables'
+            }
+        };
+    }
+
+    return {
+        status: 500,
+        payload: {
+            error: fallbackMessage,
+            details: error.message
+        }
+    };
+}
+
 // Register
 router.post('/register', async (req, res) => {
     try {
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                error: 'JWT_SECRET is not configured on server',
+                hint: 'Add JWT_SECRET in Vercel Environment Variables'
+            });
+        }
+
         const { name, email, password, confirmPassword } = req.body;
 
         // Validation
@@ -64,16 +142,21 @@ router.post('/register', async (req, res) => {
         res.status(201).json({ token, user: userData });
     } catch (error) {
         console.error('Registration Error:', error.message);
-        res.status(500).json({ 
-            error: 'Internal Server Error during registration',
-            message: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+        const mapped = getApiErrorDetails(error, 'Internal Server Error during registration');
+        res.status(mapped.status).json(mapped.payload);
     }
 });
 
 // Login
 router.post('/login', async (req, res) => {
     try {
+        if (!process.env.JWT_SECRET) {
+            return res.status(500).json({
+                error: 'JWT_SECRET is not configured on server',
+                hint: 'Add JWT_SECRET in Vercel Environment Variables'
+            });
+        }
+
         const { email, password } = req.body;
 
         // Validation
@@ -116,10 +199,8 @@ router.post('/login', async (req, res) => {
         res.json({ token, user: userData });
     } catch (error) {
         console.error('Login Error:', error.message);
-        res.status(500).json({ 
-            error: 'Internal Server Error during login',
-            message: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+        const mapped = getApiErrorDetails(error, 'Internal Server Error during login');
+        res.status(mapped.status).json(mapped.payload);
     }
 });
 
@@ -147,15 +228,20 @@ router.get('/me', authenticateToken, async (req, res) => {
         res.json({ user: userData });
     } catch (error) {
         console.error('Me Error:', error.message);
-        res.status(500).json({ 
-            error: 'Internal Server Error during user fetch',
-            message: process.env.NODE_ENV === 'development' ? error.message : undefined
-        });
+        const mapped = getApiErrorDetails(error, 'Internal Server Error during user fetch');
+        res.status(mapped.status).json(mapped.payload);
     }
 });
 
 // Middleware to verify token
 function authenticateToken(req, res, next) {
+    if (!process.env.JWT_SECRET) {
+        return res.status(500).json({
+            error: 'JWT_SECRET is not configured on server',
+            hint: 'Add JWT_SECRET in Vercel Environment Variables'
+        });
+    }
+
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
