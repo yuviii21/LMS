@@ -11,6 +11,15 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Root route for local backend checks
+app.get('/', (req, res) => {
+    res.json({
+        status: 'LMS backend is running',
+        health: '/api/health',
+        docsHint: 'Use /api/* endpoints for backend APIs'
+    });
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'Backend is running' });
@@ -19,42 +28,21 @@ app.get('/api/health', (req, res) => {
 // Initialize database endpoint (for first-time Vercel setup)
 app.get('/api/init-db', async (req, res) => {
     try {
-        const { pool } = require('./db');
-        if (!pool) {
+        const { initializeDatabase } = require('./db-init');
+
+        if (!process.env.DATABASE_URL) {
             return res.status(500).json({
                 error: 'DATABASE_URL is not configured',
                 hint: 'Add DATABASE_URL in Vercel project environment variables'
             });
         }
 
-        const client = await pool.connect();
-        try {
-            await client.query('BEGIN');
-            await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
-
-            const createUsersTableText = `
-                CREATE TABLE IF NOT EXISTS users (
-                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                    name VARCHAR(255) NOT NULL,
-                    email VARCHAR(255) UNIQUE NOT NULL,
-                    password VARCHAR(255) NOT NULL,
-                    bio TEXT DEFAULT 'Passionate learner',
-                    avatar VARCHAR(255) DEFAULT '👨‍💻',
-                    enrolled_courses JSONB DEFAULT '[]'::jsonb,
-                    progress JSONB DEFAULT '{}'::jsonb,
-                    join_date TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-            `;
-
-            await client.query(createUsersTableText);
-            await client.query('COMMIT');
-            res.json({ status: 'Database initialized successfully!' });
-        } catch (error) {
-            await client.query('ROLLBACK');
-            throw error;
-        } finally {
-            client.release();
-        }
+        const result = await initializeDatabase();
+        res.json({
+            status: 'Database initialized successfully!',
+            seededCourses: result.seededCourses,
+            seededLessons: result.seededLessons
+        });
     } catch (error) {
         console.error('Init Error:', error.message);
         res.status(500).json({
@@ -66,7 +54,10 @@ app.get('/api/init-db', async (req, res) => {
 
 // Routes
 const { router: authRouter } = require('./routes/auth');
+const { router: lmsRouter } = require('./routes/lms');
+
 app.use('/api/auth', authRouter);
+app.use('/api', lmsRouter);
 
 // 404 handler
 app.use('/api/*', (req, res) => {

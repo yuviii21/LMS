@@ -85,7 +85,10 @@ router.post('/register', async (req, res) => {
             });
         }
 
-        const { name, email, password, confirmPassword } = req.body;
+        const { name, email, password, confirmPassword, role } = req.body;
+        const normalizedRole = ['student', 'instructor', 'admin'].includes(String(role || '').toLowerCase())
+            ? String(role).toLowerCase()
+            : 'student';
 
         // Validation
         if (!name || !email || !password || !confirmPassword) {
@@ -106,6 +109,8 @@ router.post('/register', async (req, res) => {
             return res.status(400).json({ error: 'Email already registered' });
         }
 
+        await db.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'student'");
+
         // Hash password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
@@ -115,15 +120,15 @@ router.post('/register', async (req, res) => {
 
         // Create user
         const result = await db.query(
-            'INSERT INTO users (name, email, password, avatar) VALUES ($1, $2, $3, $4) RETURNING *',
-            [name, email.toLowerCase(), hashedPassword, avatar]
+            'INSERT INTO users (name, email, password, avatar, role) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+            [name, email.toLowerCase(), hashedPassword, avatar, normalizedRole]
         );
         
         const user = result.rows[0];
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: user.email, role: user.role || 'student' },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -133,6 +138,7 @@ router.post('/register', async (req, res) => {
             id: user.id,
             name: user.name,
             email: user.email,
+            role: user.role || 'student',
             bio: user.bio,
             avatar: user.avatar,
             enrolledCourses: user.enrolled_courses,
@@ -180,7 +186,7 @@ router.post('/login', async (req, res) => {
 
         // Generate JWT token
         const token = jwt.sign(
-            { userId: user.id, email: user.email },
+            { userId: user.id, email: user.email, role: user.role || 'student' },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
         );
@@ -190,6 +196,7 @@ router.post('/login', async (req, res) => {
             id: user.id,
             name: user.name,
             email: user.email,
+            role: user.role || 'student',
             bio: user.bio,
             avatar: user.avatar,
             enrolledCourses: user.enrolled_courses,
@@ -219,6 +226,7 @@ router.get('/me', authenticateToken, async (req, res) => {
             id: user.id,
             name: user.name,
             email: user.email,
+            role: user.role || 'student',
             bio: user.bio,
             avatar: user.avatar,
             enrolledCourses: user.enrolled_courses,
@@ -254,6 +262,7 @@ function authenticateToken(req, res, next) {
             return res.status(403).json({ error: 'Invalid token' });
         }
         req.userId = decodedUser.userId;
+        req.userRole = decodedUser.role || 'student';
         next();
     });
 }

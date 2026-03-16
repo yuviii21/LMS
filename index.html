@@ -128,6 +128,92 @@
             }
         };
 
+        const buildAuthHeaders = (token) => ({
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+        });
+
+        const lmsAPI = {
+            getCourses: async () => {
+                const response = await fetch(`${API_URL}/courses`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                return handleResponse(response);
+            },
+            getCourseLessons: async (courseId) => {
+                const response = await fetch(`${API_URL}/courses/${courseId}/lessons`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                return handleResponse(response);
+            },
+            getFirstLesson: async (courseId, token) => {
+                const response = await fetch(`${API_URL}/courses/${courseId}/first-lesson`, {
+                    method: 'GET',
+                    headers: buildAuthHeaders(token)
+                });
+                return handleResponse(response);
+            },
+            getLessonVideo: async (lessonId, token) => {
+                const response = await fetch(`${API_URL}/lessons/${lessonId}/video`, {
+                    method: 'GET',
+                    headers: buildAuthHeaders(token)
+                });
+                return handleResponse(response);
+            },
+            enrollCourse: async (courseId, token) => {
+                const response = await fetch(`${API_URL}/enrollments`, {
+                    method: 'POST',
+                    headers: buildAuthHeaders(token),
+                    body: JSON.stringify({ courseId })
+                });
+                return handleResponse(response);
+            },
+            getLearningState: async (token) => {
+                const response = await fetch(`${API_URL}/learning/state`, {
+                    method: 'GET',
+                    headers: buildAuthHeaders(token)
+                });
+                return handleResponse(response);
+            },
+            markLessonCompleted: async (lessonId, courseId, token) => {
+                const response = await fetch(`${API_URL}/progress/lessons/${lessonId}/complete`, {
+                    method: 'POST',
+                    headers: buildAuthHeaders(token),
+                    body: JSON.stringify({ courseId })
+                });
+                return handleResponse(response);
+            },
+            markLessonInProgress: async (lessonId, courseId, token) => {
+                const response = await fetch(`${API_URL}/progress/lessons/${lessonId}`, {
+                    method: 'POST',
+                    headers: buildAuthHeaders(token),
+                    body: JSON.stringify({ courseId, status: 'in_progress' })
+                });
+                return handleResponse(response);
+            }
+        };
+
+        const mergeApiCourses = (baseCourses, apiCourses) => {
+            const baseMap = new Map(baseCourses.map((course) => [course.id, course]));
+            const merged = [];
+
+            apiCourses.forEach((apiCourse) => {
+                const fallback = baseMap.get(apiCourse.id) || {};
+                merged.push({
+                    ...fallback,
+                    ...apiCourse,
+                    tags: fallback.tags || [],
+                    playlist: fallback.playlist || []
+                });
+                baseMap.delete(apiCourse.id);
+            });
+
+            baseMap.forEach((remainingCourse) => merged.push(remainingCourse));
+            return merged;
+        };
+
         // --- MOCK DATA ---
         const MOCK_COURSES = [
             {
@@ -343,7 +429,7 @@
             return newState;
         };
 
-        const AppProvider = ({ children, currentUser }) => {
+        const AppProvider = ({ children, currentUser, initialLearningState }) => {
             const [state, dispatch] = useReducer(reducer, defaultState);
 
             useEffect(() => {
@@ -362,6 +448,12 @@
                     dispatch({ type: 'UPDATE_USER', payload: { name: currentUser.name, bio: currentUser.bio, avatar: currentUser.avatar } });
                 }
             }, [currentUser]);
+
+            useEffect(() => {
+                if (initialLearningState) {
+                    dispatch({ type: 'INIT_STATE', payload: initialLearningState });
+                }
+            }, [initialLearningState]);
 
             return (
                 <AppContext.Provider value={{ state, dispatch }}>
@@ -537,7 +629,7 @@
         };
 
         // --- VIEWS ---
-        const DashboardView = ({ setView, setSelectedCourse }) => {
+        const DashboardView = ({ setView, setSelectedCourse, courses }) => {
             const { state } = useContext(AppContext);
             
             const enrolledCourses = Object.keys(state.enrollments);
@@ -548,9 +640,10 @@
             enrolledCourses.forEach(cId => {
                 const cProgress = state.progress[cId]?.completedLessons || [];
                 lessonsCompleted += cProgress.length;
-                const course = MOCK_COURSES.find(c => c.id === cId);
+                const course = courses.find(c => c.id === cId);
                 if (course) {
-                    hoursWatched += (cProgress.length / course.playlist.length) * course.estimatedHours;
+                    const lessonCount = (course.playlist && course.playlist.length) ? course.playlist.length : 1;
+                    hoursWatched += (cProgress.length / lessonCount) * course.estimatedHours;
                 }
             });
 
@@ -562,7 +655,7 @@
                     lastWatchedCourseId = cId;
                 }
             });
-            const lastCourse = MOCK_COURSES.find(c => c.id === lastWatchedCourseId);
+            const lastCourse = courses.find(c => c.id === lastWatchedCourseId);
 
             return (
                 <div className="max-w-7xl mx-auto space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -628,12 +721,12 @@
                             <h2 className="text-xl font-heading font-black text-heading">Available Courses</h2>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {MOCK_COURSES.map(c => (
+                            {courses.map(c => (
                                 <CourseCard 
                                     key={c.id} 
                                     course={c} 
                                     enrolled={!!state.enrollments[c.id]}
-                                    progress={state.enrollments[c.id] ? (state.progress[c.id]?.completedLessons.length / c.playlist.length) * 100 : 0}
+                                    progress={state.enrollments[c.id] ? (state.progress[c.id]?.completedLessons.length / Math.max(c.playlist.length, 1)) * 100 : 0}
                                     onClick={() => { setSelectedCourse(c.id); setView('courseDetail'); }}
                                 />
                             ))}
@@ -643,20 +736,21 @@
             );
         };
 
-        const CatalogView = ({ setView, setSelectedCourse }) => {
+        const CatalogView = ({ setView, setSelectedCourse, courses }) => {
             const { state } = useContext(AppContext);
             const [searchQuery, setSearchQuery] = useState('');
             const [filterCategory, setFilterCategory] = useState('All');
 
-            const categories = ['All', ...new Set(MOCK_COURSES.map(c => c.category))];
+            const categories = ['All', ...new Set(courses.map(c => c.category))];
 
             const filteredCourses = useMemo(() => {
-                return MOCK_COURSES.filter(c => {
-                    const matchesSearch = c.title.toLowerCase().includes(searchQuery.toLowerCase()) || c.tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
+                return courses.filter(c => {
+                    const tags = c.tags || [];
+                    const matchesSearch = c.title.toLowerCase().includes(searchQuery.toLowerCase()) || tags.some(t => t.toLowerCase().includes(searchQuery.toLowerCase()));
                     const matchesCategory = filterCategory === 'All' || c.category === filterCategory;
                     return matchesSearch && matchesCategory;
                 });
-            }, [searchQuery, filterCategory]);
+            }, [searchQuery, filterCategory, courses]);
 
             return (
                 <div className="max-w-7xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -698,7 +792,7 @@
                                     key={course.id} 
                                     course={course}
                                     enrolled={!!state.enrollments[course.id]}
-                                    progress={state.enrollments[course.id] ? (state.progress[course.id]?.completedLessons.length / course.playlist.length) * 100 : 0}
+                                    progress={state.enrollments[course.id] ? (state.progress[course.id]?.completedLessons.length / Math.max(course.playlist.length, 1)) * 100 : 0}
                                     onClick={() => { setSelectedCourse(course.id); setView('courseDetail'); }}
                                 />
                             ))}
@@ -717,24 +811,58 @@
         };
 
         // (PLACEHOLDER FOR MORE VIEWS)
-        const CourseDetailView = ({ courseId, setView, setSelectedCourse, setSelectedLesson }) => {
+        const CourseDetailView = ({
+            courseId,
+            setView,
+            setSelectedCourse,
+            setSelectedLesson,
+            courses,
+            onEnroll,
+            onLoadCourseLessons,
+            onMarkLessonComplete,
+            onResolveStartLesson
+        }) => {
             const { state, dispatch } = useContext(AppContext);
-            const course = MOCK_COURSES.find(c => c.id === courseId);
+            const course = courses.find(c => c.id === courseId);
             if (!course) return null;
 
             const isEnrolled = !!state.enrollments[courseId];
             const courseProgress = state.progress[courseId]?.completedLessons || [];
-            const progressPercent = (courseProgress.length / course.playlist.length) * 100 || 0;
+            const progressPercent = (courseProgress.length / Math.max(course.playlist.length, 1)) * 100 || 0;
 
-            const handleEnroll = () => {
+            useEffect(() => {
+                if (courseId && onLoadCourseLessons) {
+                    onLoadCourseLessons(courseId);
+                }
+            }, [courseId, onLoadCourseLessons]);
+
+            const handleEnroll = async () => {
                 dispatch({ type: 'ENROLL_COURSE', payload: courseId });
+                if (onEnroll) {
+                    await onEnroll(courseId);
+                }
             };
 
-            const handleStart = () => {
-                if (!isEnrolled) handleEnroll();
-                const lastWatched = state.progress[courseId]?.lastWatchedLesson;
-                const firstUnwatched = course.playlist.find(l => !courseProgress.includes(l.id))?.id;
-                setSelectedLesson(lastWatched || firstUnwatched || course.playlist[0].id);
+            const handleStart = async () => {
+                if (!isEnrolled) {
+                    await handleEnroll();
+                }
+
+                let targetLessonId = null;
+                if (onResolveStartLesson) {
+                    targetLessonId = await onResolveStartLesson(
+                        courseId,
+                        courseProgress,
+                        course.playlist,
+                        state.progress[courseId]?.lastWatchedLesson
+                    );
+                }
+
+                const fallbackLessonId = state.progress[courseId]?.lastWatchedLesson
+                    || course.playlist.find(l => !courseProgress.includes(l.id))?.id
+                    || (course.playlist[0] && course.playlist[0].id);
+
+                setSelectedLesson(targetLessonId || fallbackLessonId);
                 setView('player');
             };
 
@@ -819,12 +947,23 @@
                                                 index={idx}
                                                 isActive={false}
                                                 isCompleted={courseProgress.includes(lesson.id)}
-                                                onClick={() => {
-                                                    if (!isEnrolled) handleEnroll();
+                                                onClick={async () => {
+                                                    if (!isEnrolled) {
+                                                        await handleEnroll();
+                                                    }
                                                     setSelectedLesson(lesson.id);
                                                     setView('player');
                                                 }}
-                                                onToggleComplete={() => isEnrolled && dispatch({ type: 'MARK_LESSON_COMPLETE', payload: { courseId, lessonId: lesson.id }})}
+                                                onToggleComplete={() => {
+                                                    if (!isEnrolled) {
+                                                        return;
+                                                    }
+
+                                                    dispatch({ type: 'MARK_LESSON_COMPLETE', payload: { courseId, lessonId: lesson.id }});
+                                                    if (onMarkLessonComplete) {
+                                                        onMarkLessonComplete(courseId, lesson.id);
+                                                    }
+                                                }}
                                             />
                                             </div>
                                         </div>
@@ -852,7 +991,7 @@
                             <div className="bg-surface rounded-3xl border border-slate-200 p-10 shadow-sm">
                                 <h3 className="text-2xl font-heading font-black text-heading mb-8">Skills you'll gain</h3>
                                 <div className="flex flex-wrap gap-3">
-                                    {course.tags.map(tag => (
+                                    {(course.tags || []).map(tag => (
                                         <span key={tag} className="px-5 py-2.5 bg-slate-50 text-slate-700 rounded-xl text-sm font-bold border border-slate-200 shadow-sm transition-colors hover:bg-slate-100 cursor-default">
                                             {tag}
                                         </span>
@@ -865,17 +1004,54 @@
             );
         };
 
-        const PlayerView = ({ courseId, lessonId, setView, setSelectedLesson }) => {
+        const PlayerView = ({
+            courseId,
+            lessonId,
+            setView,
+            setSelectedLesson,
+            courses,
+            onLessonWatch,
+            onMarkLessonComplete,
+            onLoadLessonVideo
+        }) => {
             const { state, dispatch } = useContext(AppContext);
-            const course = MOCK_COURSES.find(c => c.id === courseId);
+            const course = courses.find(c => c.id === courseId);
             const lessonIndex = course?.playlist.findIndex(l => l.id === lessonId);
             const lesson = course?.playlist[lessonIndex];
+            const [resolvedVideoId, setResolvedVideoId] = useState(lesson ? lesson.youtubeVideoId : null);
 
             useEffect(() => {
                 if (courseId && lessonId) {
                     dispatch({ type: 'SET_LAST_WATCHED', payload: { courseId, lessonId } });
+                    if (onLessonWatch) {
+                        onLessonWatch(courseId, lessonId);
+                    }
                 }
-            }, [courseId, lessonId, dispatch]);
+            }, [courseId, lessonId, dispatch, onLessonWatch]);
+
+            useEffect(() => {
+                let isActive = true;
+
+                if (lesson) {
+                    setResolvedVideoId(lesson.youtubeVideoId);
+                }
+
+                if (lessonId && onLoadLessonVideo) {
+                    onLoadLessonVideo(lessonId)
+                        .then((videoId) => {
+                            if (isActive && videoId) {
+                                setResolvedVideoId(videoId);
+                            }
+                        })
+                        .catch((error) => {
+                            console.error('Failed to resolve lesson video from backend:', error);
+                        });
+                }
+
+                return () => {
+                    isActive = false;
+                };
+            }, [lessonId, lesson, onLoadLessonVideo]);
 
             if (!course || !lesson) return null;
 
@@ -894,6 +1070,9 @@
 
             const handleMarkComplete = () => {
                 dispatch({ type: 'MARK_LESSON_COMPLETE', payload: { courseId, lessonId } });
+                if (onMarkLessonComplete) {
+                    onMarkLessonComplete(courseId, lessonId);
+                }
                 if (lessonIndex < course.playlist.length - 1) {
                     handleNext();
                 }
@@ -912,7 +1091,7 @@
                             <span className="truncate font-bold text-primary px-3 py-1 bg-primary/5 rounded-lg">Lesson {lessonIndex + 1} of {course.playlist.length}</span>
                         </div>
                         
-                        <YouTubePlayer videoId={lesson.youtubeVideoId} />
+                        <YouTubePlayer videoId={resolvedVideoId || lesson.youtubeVideoId} />
                         
                         <div className="mt-8 bg-surface border border-slate-200 rounded-[2rem] p-8 md:p-12 flex flex-col md:flex-row gap-12 justify-between shadow-sm relative overflow-hidden">
                             <div className="absolute top-0 w-full h-2 left-0 bg-primary"></div>
@@ -965,7 +1144,12 @@
                                     isActive={l.id === lessonId}
                                     isCompleted={courseProgress.includes(l.id)}
                                     onClick={() => setSelectedLesson(l.id)}
-                                    onToggleComplete={() => dispatch({ type: 'MARK_LESSON_COMPLETE', payload: { courseId, lessonId: l.id }})}
+                                    onToggleComplete={() => {
+                                        dispatch({ type: 'MARK_LESSON_COMPLETE', payload: { courseId, lessonId: l.id }});
+                                        if (onMarkLessonComplete) {
+                                            onMarkLessonComplete(courseId, l.id);
+                                        }
+                                    }}
                                 />
                             ))}
                         </div>
@@ -1178,7 +1362,7 @@
             );
         };
 
-        const ProfileView = ({ setView }) => {
+        const ProfileView = ({ setView, courses }) => {
             const { state, dispatch } = useContext(AppContext);
             const [isEditing, setIsEditing] = useState(false);
             const [name, setName] = useState(state.user.name);
@@ -1197,11 +1381,12 @@
             let hoursWatched = 0;
             let fullyCompletedCourses = 0;
             enrolledCourses.forEach(cId => {
-                const course = MOCK_COURSES.find(c => c.id === cId);
+                const course = courses.find(c => c.id === cId);
                 const cProgress = state.progress[cId]?.completedLessons || [];
                 if (course) {
-                    hoursWatched += (cProgress.length / course.playlist.length) * course.estimatedHours;
-                    if (cProgress.length === course.playlist.length) fullyCompletedCourses++;
+                    const lessonCount = (course.playlist && course.playlist.length) ? course.playlist.length : 1;
+                    hoursWatched += (cProgress.length / lessonCount) * course.estimatedHours;
+                    if (cProgress.length === lessonCount) fullyCompletedCourses++;
                 }
             });
 
@@ -1281,7 +1466,7 @@
                                 {state.activityLog.length > 0 ? (
                                     <div className="space-y-8 relative before:absolute before:inset-0 before:ml-[1.75rem] before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-[2px] before:bg-gradient-to-b before:from-transparent before:via-slate-200 before:to-transparent">
                                         {state.activityLog.slice(0, 8).map((log, idx) => {
-                                            const course = MOCK_COURSES.find(c => c.id === log.courseId);
+                                            const course = courses.find(c => c.id === log.courseId);
                                             const lesson = course?.playlist.find(l => l.id === log.lessonId);
                                             const date = new Date(log.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                                             
@@ -1598,6 +1783,119 @@
             const [darkMode, setDarkMode] = useState(false);
             const [isAuthenticated, setIsAuthenticated] = useState(false);
             const [currentUser, setCurrentUser] = useState(null);
+            const [courses, setCourses] = useState(MOCK_COURSES);
+            const [initialLearningState, setInitialLearningState] = useState(null);
+
+            const getAuthToken = () => localStorage.getItem('authToken');
+
+            const normalizeLessonFromApi = (lesson, fallbackLesson = {}) => ({
+                ...fallbackLesson,
+                id: lesson.id,
+                title: lesson.title,
+                youtubeVideoId: lesson.youtubeVideoId || fallbackLesson.youtubeVideoId,
+                duration: lesson.duration || fallbackLesson.duration || '00:00',
+                description: lesson.description || fallbackLesson.description || ''
+            });
+
+            const syncCourses = async () => {
+                const courseResult = await lmsAPI.getCourses();
+                if (!courseResult.error && Array.isArray(courseResult.courses)) {
+                    setCourses((previous) => mergeApiCourses(previous, courseResult.courses));
+                }
+            };
+
+            const loadCourseLessons = async (courseId) => {
+                const lessonResult = await lmsAPI.getCourseLessons(courseId);
+                if (lessonResult.error || !Array.isArray(lessonResult.lessons)) {
+                    return;
+                }
+
+                setCourses((previousCourses) => previousCourses.map((course) => {
+                    if (course.id !== courseId) {
+                        return course;
+                    }
+
+                    const fallbackMap = new Map((course.playlist || []).map((lesson) => [lesson.id, lesson]));
+                    const updatedPlaylist = lessonResult.lessons
+                        .slice()
+                        .sort((a, b) => (a.orderNumber || a.order) - (b.orderNumber || b.order))
+                        .map((lesson) => normalizeLessonFromApi(lesson, fallbackMap.get(lesson.id)));
+
+                    return {
+                        ...course,
+                        playlist: updatedPlaylist
+                    };
+                }));
+            };
+
+            const hydrateLearningState = async (token) => {
+                await syncCourses();
+                const learningResult = await lmsAPI.getLearningState(token);
+                if (!learningResult.error) {
+                    setInitialLearningState({
+                        enrollments: learningResult.enrollments || {},
+                        progress: learningResult.progress || {}
+                    });
+                }
+            };
+
+            const handleEnrollCourse = async (courseId) => {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const result = await lmsAPI.enrollCourse(courseId, token);
+                if (result.error) {
+                    console.error('Failed to persist enrollment:', result.error);
+                }
+            };
+
+            const handleMarkLessonComplete = async (courseId, lessonId) => {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const result = await lmsAPI.markLessonCompleted(lessonId, courseId, token);
+                if (result.error) {
+                    console.error('Failed to persist completion:', result.error);
+                }
+            };
+
+            const handleLessonWatch = async (courseId, lessonId) => {
+                const token = getAuthToken();
+                if (!token) return;
+
+                const result = await lmsAPI.markLessonInProgress(lessonId, courseId, token);
+                if (result.error) {
+                    console.error('Failed to persist watched lesson:', result.error);
+                }
+            };
+
+            const handleLoadLessonVideo = async (lessonId) => {
+                const token = getAuthToken();
+                if (!token) return null;
+
+                const result = await lmsAPI.getLessonVideo(lessonId, token);
+                if (result.error) {
+                    console.error('Failed to load lesson video:', result.error);
+                    return null;
+                }
+
+                return result.youtubeVideoId || null;
+            };
+
+            const resolveStartLesson = async (courseId, courseProgress, playlist, lastWatchedLesson) => {
+                const token = getAuthToken();
+                if (token) {
+                    const result = await lmsAPI.getFirstLesson(courseId, token);
+                    if (!result.error && result.lessonId) {
+                        return result.lessonId;
+                    }
+                }
+
+                return lastWatchedLesson
+                    || (playlist || []).find((lesson) => !courseProgress.includes(lesson.id))?.id
+                    || ((playlist || [])[0] && (playlist || [])[0].id)
+                    || null;
+            };
 
             useEffect(() => {
                 // Check for JWT token in localStorage and verify it
@@ -1614,6 +1912,9 @@
                                 // Token is valid, restore user session
                                 setCurrentUser(result.user);
                                 setIsAuthenticated(true);
+                                hydrateLearningState(token).catch((error) => {
+                                    console.error('Failed to hydrate LMS state:', error);
+                                });
                             }
                         })
                         .catch((error) => {
@@ -1627,6 +1928,13 @@
             const handleLoginSuccess = (user) => {
                 setCurrentUser(user);
                 setIsAuthenticated(true);
+
+                const token = getAuthToken();
+                if (token) {
+                    hydrateLearningState(token).catch((error) => {
+                        console.error('Failed to hydrate LMS state after login:', error);
+                    });
+                }
             };
 
             const handleLogout = () => {
@@ -1634,6 +1942,10 @@
                 localStorage.removeItem('authToken');
                 setCurrentUser(null);
                 setIsAuthenticated(false);
+                setInitialLearningState(null);
+                setCourses(MOCK_COURSES);
+                setSelectedCourse(null);
+                setSelectedLesson(null);
                 setView('dashboard');
             };
 
@@ -1642,7 +1954,7 @@
             }
             
             return (
-                <AppProvider currentUser={currentUser}>
+                <AppProvider currentUser={currentUser} initialLearningState={initialLearningState}>
                     <AppContext.Consumer>
                         {({ state }) => (
                             <div className={`flex flex-col h-screen overflow-hidden selection:bg-primary/20 selection:text-heading relative ${darkMode ? 'bg-slate-900 text-slate-100' : 'bg-background'}`}>
@@ -1664,11 +1976,34 @@
                                         )}
                                         
                                         <div className={`p-4 md:p-8 lg:p-12 ${darkMode ? 'text-slate-100' : ''}`}>
-                                            {view === 'dashboard' && <DashboardView setView={setView} setSelectedCourse={setSelectedCourse} />}
-                                            {view === 'catalog' && <CatalogView setView={setView} setSelectedCourse={setSelectedCourse} />}
-                                            {view === 'courseDetail' && <CourseDetailView courseId={selectedCourse} setView={setView} setSelectedCourse={setSelectedCourse} setSelectedLesson={setSelectedLesson} />}
-                                            {view === 'player' && <PlayerView courseId={selectedCourse} lessonId={selectedLesson} setView={setView} setSelectedLesson={setSelectedLesson} />}
-                                            {view === 'profile' && <ProfileView setView={setView} />}
+                                            {view === 'dashboard' && <DashboardView setView={setView} setSelectedCourse={setSelectedCourse} courses={courses} />}
+                                            {view === 'catalog' && <CatalogView setView={setView} setSelectedCourse={setSelectedCourse} courses={courses} />}
+                                            {view === 'courseDetail' && (
+                                                <CourseDetailView
+                                                    courseId={selectedCourse}
+                                                    setView={setView}
+                                                    setSelectedCourse={setSelectedCourse}
+                                                    setSelectedLesson={setSelectedLesson}
+                                                    courses={courses}
+                                                    onEnroll={handleEnrollCourse}
+                                                    onLoadCourseLessons={loadCourseLessons}
+                                                    onMarkLessonComplete={handleMarkLessonComplete}
+                                                    onResolveStartLesson={resolveStartLesson}
+                                                />
+                                            )}
+                                            {view === 'player' && (
+                                                <PlayerView
+                                                    courseId={selectedCourse}
+                                                    lessonId={selectedLesson}
+                                                    setView={setView}
+                                                    setSelectedLesson={setSelectedLesson}
+                                                    courses={courses}
+                                                    onLessonWatch={handleLessonWatch}
+                                                    onMarkLessonComplete={handleMarkLessonComplete}
+                                                    onLoadLessonVideo={handleLoadLessonVideo}
+                                                />
+                                            )}
+                                            {view === 'profile' && <ProfileView setView={setView} courses={courses} />}
                                             {view === 'chatbot' && <ChatBotView setView={setView} />}
                                         </div>
                                     </div>
