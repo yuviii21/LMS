@@ -55,9 +55,11 @@ app.get('/api/init-db', async (req, res) => {
 // Routes
 const { router: authRouter } = require('./routes/auth');
 const { router: lmsRouter } = require('./routes/lms');
+const { router: aiRouter } = require('./routes/ai');
 
 app.use('/api/auth', authRouter);
 app.use('/api', lmsRouter);
+app.use('/api/ai', aiRouter);
 
 // 404 handler
 app.use('/api/*', (req, res) => {
