@@ -4,7 +4,7 @@ A simple LMS application with a frontend UI and a Node.js/Express backend connec
 
 ## Live Demo
 
-https://lms-ekny.vercel.app/
+https://lms-nu-gilt.vercel.app/
 
 ## Repository Structure
 
