@@ -1,6 +1,8 @@
 const { pool } = require('./db');
 const { COURSE_SEED } = require('./data/courseSeed');
 
+let initializationPromise = null;
+
 async function createSchema(client) {
     await client.query('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";');
 
@@ -206,4 +208,15 @@ async function initializeDatabase() {
     }
 }
 
-module.exports = { initializeDatabase };
+async function ensureDatabaseInitialized() {
+    if (!initializationPromise) {
+        initializationPromise = initializeDatabase().catch((error) => {
+            initializationPromise = null;
+            throw error;
+        });
+    }
+
+    return initializationPromise;
+}
+
+module.exports = { initializeDatabase, ensureDatabaseInitialized };

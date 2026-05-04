@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
 
+const { ensureDatabaseInitialized } = require('./db-init');
+
 const app = express();
 
 // Middleware
@@ -28,8 +30,6 @@ app.get('/api/health', (req, res) => {
 // Initialize database endpoint (for first-time Vercel setup)
 app.get('/api/init-db', async (req, res) => {
     try {
-        const { initializeDatabase } = require('./db-init');
-
         if (!process.env.DATABASE_URL) {
             return res.status(500).json({
                 error: 'DATABASE_URL is not configured',
@@ -37,7 +37,7 @@ app.get('/api/init-db', async (req, res) => {
             });
         }
 
-        const result = await initializeDatabase();
+        const result = await ensureDatabaseInitialized();
         res.json({
             status: 'Database initialized successfully!',
             seededCourses: result.seededCourses,
@@ -52,13 +52,34 @@ app.get('/api/init-db', async (req, res) => {
     }
 });
 
+// Ensure database schema exists before hitting DB-backed API routes.
+async function requireDatabaseReady(req, res, next) {
+    try {
+        if (!process.env.DATABASE_URL) {
+            return res.status(500).json({
+                error: 'DATABASE_URL is not configured',
+                hint: 'Add DATABASE_URL in Vercel project environment variables'
+            });
+        }
+
+        await ensureDatabaseInitialized();
+        next();
+    } catch (error) {
+        console.error('Database bootstrap error:', error.message);
+        res.status(500).json({
+            error: 'Failed to initialize database',
+            details: error.message
+        });
+    }
+}
+
 // Routes
 const { router: authRouter } = require('./routes/auth');
 const { router: lmsRouter } = require('./routes/lms');
 const { router: aiRouter } = require('./routes/ai');
 
-app.use('/api/auth', authRouter);
-app.use('/api', lmsRouter);
+app.use('/api/auth', requireDatabaseReady, authRouter);
+app.use('/api', requireDatabaseReady, lmsRouter);
 app.use('/api/ai', aiRouter);
 
 // 404 handler
