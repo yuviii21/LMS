@@ -193,12 +193,22 @@ async function initializeDatabase() {
     try {
         await client.query('BEGIN');
         await createSchema(client);
-        await seedCourses(client);
+        
+        // Skip seeding if courses already exist to speed up cold starts
+        const coursesResult = await client.query('SELECT COUNT(*) FROM courses');
+        const count = parseInt(coursesResult.rows[0].count, 10);
+        
+        let seeded = 0;
+        if (count === 0) {
+            await seedCourses(client);
+            seeded = COURSE_SEED.length;
+        }
+
         await client.query('COMMIT');
 
         return {
-            seededCourses: COURSE_SEED.length,
-            seededLessons: COURSE_SEED.reduce((count, course) => count + course.playlist.length, 0)
+            alreadyInitialized: count > 0,
+            seededCourses: seeded
         };
     } catch (error) {
         await client.query('ROLLBACK');
